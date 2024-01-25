@@ -1,0 +1,148 @@
+//----------------Definitions----------
+sbit BaslatButon at PIND.B2;
+sbit buton at PIND.B3;
+unsigned int bebek;
+unsigned int ortam;
+unsigned int islaklik;
+unsigned char a;
+unsigned char b;
+unsigned int toplam;
+unsigned int i;
+unsigned char alma( void );
+void gonderme( unsigned char veri );
+//-----------------İnterrupt Settings--------------------------
+void AlarmDurumu_ISR() org IVT_ADDR_INT1
+{
+
+    a=alma();
+    if(a=='b'){
+     PORTB.B0=0;
+     PORTB.B1=0;
+     PORTB.B2=0;
+     PORTB.B3=0;
+    while(buton);
+    }
+}
+//-----------Functions----------------------
+void Bebek_Sicaklik(unsigned char c)  // Heat Sensor 
+{
+    ADMUX=0x60;
+    ADCSRA=0x8E;
+    ADCSRA |= (1<<ADSC); //Konuşma Başlatır
+    while((ADCSRA&(1<<ADIF))==0);  //Konuşma tamamlanana Kadar bekler
+    c = ADCH;
+    for (i=1;i<=8;i++){
+     bebek=c[i]*(2^i)+bebek;
+    }
+    bebek=bebek*2.8;
+    gonderme('bebek');
+    if(toplam>=36){
+     gonderme('D');
+     PORTB.B0=1;
+     PIND.B3=1; // INT1 kesmesini aktif eder
+    }
+}
+void Ortam_Sicaklik(unsigned char c)
+{
+    ADMUX=0x61;
+    ADCSRA=0x8E;
+    ADCSRA |= (1<<ADSC);
+    while((ADCSRA&(1<<ADIF))==0);
+    c = ADCH;
+    for (i=1;i<=8;i++){
+     ortam=c[i]*(2^i)+ortam;
+    }
+    ortam=ortam*2.8;
+    gonderme('ortam');
+    if(toplam>28){
+     gonderme('d');
+     PORTB.B1=1;
+     PIND.B3=1; // INT1 kesmesini aktif eder
+    }
+}
+void Islaklik(unsigned char c)
+{
+    ADMUX=0x62;
+    ADCSRA=0x8E;
+    ADCSRA |= (1<<ADSC);
+    while((ADCSRA&(1<<ADIF))==0);
+    c = ADCH;
+    for (i=1;i<=8;i++){
+     islaklik=c[i]*(2^i)+islaklik;
+    }
+    if(islaklik>0){
+     gonderme('I');
+     PORTB.B2=1;
+     PIND.B3=1; // INT1 kesmesini aktif eder
+    }
+}
+void Aglama(unsigned char c)
+{
+    ADMUX=0x63;
+    ADCSRA=0x8E;
+    ADCSRA |= (1<<ADSC);
+    while((ADCSRA&(1<<ADIF))==0);
+    c = ADCH;
+    for (i=1;i<=8;i++){
+     toplam=c[i]*(2^i)+toplam;
+    }
+   
+ if(c>0){
+      TIMSK1 = 0x01 ;
+      TCNT1H = -50000 / 256 ; //50000 kere say
+      TCNT1L = -50000 % 256 ;
+      TCCR1B = 0x02 ;        // 16/8 bölmesini aktif eder. 2MHz=1/T, T=0.5usn
+      while ((TIFR1&0x01) == 0 ) ;  // her 50000 kere saymayı kontrol et
+      i++ ;
+      if(i == 100){   // 5sn bekleme için 100 kere dönmesi gerekiyor (50000 * 100 = 5 sn)
+       if(c>0){
+	gonderme('ı');
+        PIND.B3=1; // INT1 kesmesini aktif eder
+        PORTB.B3=1;// Aglama Ledini yakar
+       }
+      }
+    TCCR1B=0;
+    TIFR1=1;
+     }
+}
+void Pin_atama()
+{
+ DDRB.B0=1;  //Bebek Sıcaklık
+ DDRB.B1=1;  //Ortam Sıcaklık
+ DDRB.B2=1;  //Altını Islatma
+ DDRB.B3=1;  //Ağlama
+ DDRC=0x00;  //Analog Girişlerrr
+ DDRD.B3=0;  //Açma-Kapama Buton
+}
+
+
+
+
+//-----------TX and RX Functions ------------
+void gonderme( unsigned char veri )  //RX 
+{
+        while ( !( UCSR0A & (1<<UDRE0)) );
+        UDR0 = veri;
+}
+unsigned char alma( void )    // TX
+{
+        while ( !(UCSR0A & (1<<RXC0)) );
+        return UDR0;
+}
+//-----------------------------------------------------------------------------------
+void main() {
+   Pin_atama();
+   EICRA=0x0C;          //INT1 Pull-down'a göre aktif edildi
+   EIMSK=0x02;         //INT1 kesmeleri kullanılacak denildi
+   SREG_I_bit=1;      //Kesmeler Aktif edildi
+   UART1_Init(9600); //Baud Rate Ayarlandı
+   while(1)
+   {
+    while(buton);
+     Bebek_Sicaklik(b);
+     Ortam_Sicaklik(b);
+     Islaklik(b);
+     Aglama(b);
+    
+   }
+}
